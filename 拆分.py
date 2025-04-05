@@ -1,63 +1,137 @@
 import random
-import SubFunc
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 from openpyxl import Workbook, load_workbook
+import SubFunc
 
-wb: Workbook = load_workbook(filename="育肥牛.xlsx")
-sheet = wb.active if wb else None
-if sheet is not None:
-    按行拆分池 = sheet.iter_rows(min_row=2, values_only=True)
 
-    # exit()
-
-    取整位数: int = 2
-
+def clear_console():
+    """清理控制台"""
     os.system("clear")
-    print(f"{datetime.now()}")
-    print()
-    for 标题, 剩余拆分金额 in 按行拆分池:
+    print(f"{datetime.now()}\n")
 
-        目标波动率 = 0.5
-        单价下限 = 26
-        单价上限 = 28
-        目标条数下限 = 5
-        目标条数上限 = 15
-        目标条数上下限差 = 目标条数上限 - 目标条数下限
 
-        最终目标条数 = int((random.random() * 目标条数上下限差) + 目标条数下限)
-        # print(最终目标条数)
+def load_excel_file(filename):
+    """加载 Excel 文件"""
+    try:
+        workbook = load_workbook(filename=filename)
+        return workbook.active if workbook else None
+    except Exception as e:
+        print(f"Error: 无法加载文件 {filename}. 错误信息: {e}")
+        return None
 
-        每一份金额基准 = int(剩余拆分金额 / 最终目标条数)
-        # print(每一份金额基准)
 
-        上次剩余拆分金额 = 0
-        index = 1
-        while 剩余拆分金额 > 0:
-            本次随机比率 = SubFunc.randomFloat(下限=-目标波动率, 上限=目标波动率)
-            # print(本次随机比率)
+def generate_random_split(
+    remaining_amount, base_amount, volatility, rounding_digits, price_range
+):
+    """生成随机拆分数据"""
+    if remaining_amount <= 0:
+        return 0, 0, 0  # 防止负值或无效数据
 
-            if 剩余拆分金额 <= 每一份金额基准:
-                本次拆出金额 = round(剩余拆分金额, 取整位数)
-            else:
-                本次拆出金额 = round(每一份金额基准 * (1 + 本次随机比率), 取整位数)
+    random_ratio = SubFunc.randomFloat(下限=-volatility, 上限=volatility)
+    if remaining_amount <= base_amount:
+        split_amount = round(remaining_amount, rounding_digits)
+    else:
+        split_amount = round(base_amount * (1 + random_ratio), rounding_digits)
 
-            本次单价 = round(SubFunc.randomFloat(单价下限, 单价上限), 2)
-            本次数量 = round(本次拆出金额 / 本次单价, 取整位数)
+    price = round(SubFunc.randomFloat(*price_range), 1)
+    quantity = round(split_amount / price, rounding_digits)
+    return split_amount, price, quantity
 
-            上次剩余拆分金额 = 剩余拆分金额
-            剩余拆分金额 = round(剩余拆分金额 - 本次拆出金额, 取整位数)
 
-            print()
-            print(f"{标题}:")
-            print(f"序号:{index}")
-            print(f"本次金额:{本次拆出金额}")
-            print(f"本次单价:{本次单价}")
-            print(f"本次数量:{本次数量}")
-            # print(f"剩余拆分金额:{剩余拆分金额}")
-            print()
+def process_rows(sheet, output_data):
+    """处理 Excel 表格的行数据"""
+    try:
+        columns = list(sheet.iter_cols(min_row=2, values_only=True))
+        rows = list(sheet.iter_rows(min_row=1, values_only=True))
+        if not columns or not rows:
+            print("Error: 表格数据为空或格式不正确。")
+            return
 
-            index += 1
+        headers = columns[0]
+        date_row = rows[0]
 
-else:
-    print("Error: Failed to load the workbook or sheet is None.")
+        for row_index, row_data in enumerate(rows[1:], start=1):
+            rounding_digits = 2
+            for col_index, cell_value in enumerate(row_data[1:], start=1):
+                if cell_value is None:
+                    continue
+
+                remaining_amount = int(cell_value)
+                volatility = 0.1
+                price_range = (26, 28)
+                target_count_range = (3, 6)
+                target_count = random.randint(*target_count_range)
+                base_amount = int(remaining_amount / target_count)
+
+                sequence = 1
+                while remaining_amount > 0:
+                    split_amount, price, quantity = generate_random_split(
+                        remaining_amount,
+                        base_amount,
+                        volatility,
+                        rounding_digits,
+                        price_range,
+                    )
+                    if split_amount <= 0:  # 防止死循环
+                        break
+
+                    remaining_amount = round(
+                        remaining_amount - split_amount, rounding_digits
+                    )
+
+                    # 检查日期有效性
+                    date_value = date_row[col_index]
+                    if not isinstance(date_value, datetime):
+                        date_value = datetime.now()  # 默认使用当前日期
+
+                    output_row = [
+                        headers[row_index - 1],
+                        date_value + timedelta(days=SubFunc.randomInt(0, 20)),
+                        sequence,
+                        price,
+                        quantity,
+                        split_amount,
+                    ]
+                    output_data.append(output_row)
+                    sequence += 1
+    except Exception as e:
+        print(f"Error: 处理行数据时发生错误。错误信息: {e}")
+
+
+def save_to_excel(output_data, filename_prefix="Output"):
+    """保存数据到 Excel 文件"""
+    if not output_data:
+        print("Warning: 没有数据需要保存。")
+        return
+
+    try:
+        workbook = Workbook()
+        sheet = workbook.active
+        if sheet:
+            sheet.append(["抬头", "日期", "序号", "单价", "数量", "金额"])
+            for row in output_data:
+                sheet.append(row)
+            filename = (
+                f"{filename_prefix}_{datetime.now().strftime('%Y-%m-%d %H-%M-%S')}.xlsx"
+            )
+            workbook.save(filename)
+            print(f"数据已保存到文件: {filename}")
+    except Exception as e:
+        print(f"Error: 无法保存文件。错误信息: {e}")
+
+
+def main():
+    clear_console()
+    sheet = load_excel_file("育肥牛.xlsx")
+    if sheet is None:
+        print("Error: 无法加载工作表。")
+        return
+
+    output_data = []
+    process_rows(sheet, output_data)
+    save_to_excel(output_data)
+
+
+if __name__ == "__main__":
+    main()

@@ -92,3 +92,4 @@ def randomInt(下限, 上限) -> int:
 
 def randomFloat(下限, 上限) -> float:
     return random.random() * (上限 - 下限) + 下限
+
