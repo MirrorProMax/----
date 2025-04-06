@@ -3,9 +3,10 @@ import os
 from datetime import datetime, timedelta
 from openpyxl import Workbook, load_workbook
 import SubFunc
+import random
 
 
-def clear_console():
+def refresh_console():
     """清理控制台"""
     os.system("clear")
     print(f"{datetime.now()}\n")
@@ -21,7 +22,7 @@ def load_excel_file(filename):
         return None
 
 
-def random_split_total(total_amount):
+def random_split_total(total_amount: float):
     # 参数校验 🔧
     if total_amount is None:
         return None
@@ -31,51 +32,57 @@ def random_split_total(total_amount):
         raise ValueError("总金额必须大于0")
 
     # 随机生成3-6个分组
-    group_count = np.random.randint(3, 7)
+    group_count: int = int(np.random.randint(3, 7))
 
     # 生成金额分配权重（确保总和精确）
-    fractions = np.random.dirichlet(np.ones(group_count), size=1)
-    split_amounts = (fractions * total_amount).flatten()
+    fractions_NDArray = np.random.dirichlet(np.ones(group_count), size=1)
+    split_amounts_NDArray = (fractions_NDArray * total_amount).flatten()
 
-    result = []
-    remaining = total_amount  # 剩余待分配金额
+    split_amounts = split_amounts_NDArray.tolist()
+
+    result: list = []
+    remaining: float = float(total_amount)  # 剩余待分配金额
+
+    unit_price_lower_limit = 26
+    unit_price_upper_limit = 28
 
     for i in range(group_count):
-        # 动态调整最后一组逻辑 🔧
+        # 动态调整最后一组逻辑
         if i == group_count - 1:
-            current_amount = remaining
+            current_amount: float = float(remaining)
         else:
-            current_amount = split_amounts[i]
+            current_amount: float = split_amounts[i]
 
         # 生成单价（严格限制范围）
-        unit_price = round(np.clip(np.random.uniform(26, 28), 26, 28), 2)
+        current_unit_price = round(
+            SubFunc.randomFloat(unit_price_lower_limit, unit_price_upper_limit), 2
+        )
 
         # 计算数量（保留两位小数）
-        quantity = round(current_amount / unit_price, 2)
+        quantity: float = float(round(current_amount / current_unit_price, 2))
 
         # 记录结果
         result.append(
-            {
-                "分组": i + 1,
-                "单价": unit_price,
-                "数量": quantity,
-                "小计": current_amount,
-                "剩余金额": remaining - current_amount,  # 新增监控字段
-            }
+            [
+                i + 1,
+                current_unit_price,
+                quantity,
+                current_amount,
+                remaining - current_amount,  # 新增监控字段
+            ]
         )
 
         # 更新剩余金额（最后一组自动归零）
-        remaining -= current_amount
+        remaining -= float(current_amount)
 
     # 强制校验总和 🔧
-    assert np.isclose(
-        sum([x["小计"] for x in result]), total_amount
-    ), "金额总和校验失败"
+    if abs(sum(split_amounts) - total_amount) > 0.01:
+        raise ValueError("金额分配不准确")
 
     return result
 
 
-def process_rows(inSheet, output_data):
+def process_rows(inSheet, output_data: list):
     rows = list(inSheet.iter_rows(min_row=1, values_only=True))
     columns = list(inSheet.iter_cols(min_row=1, values_only=True))
     if not columns or not rows:
@@ -86,7 +93,27 @@ def process_rows(inSheet, output_data):
 
     for row_index, row in enumerate(rows[1:], start=1):
         for col_index, cell_value in enumerate(row[1:], start=1):
-            output_data.append(random_split_total(cell_value))
+            if cell_value is None:
+                continue
+            split_result = random_split_total(cell_value)
+
+            # 随机生成“日”的值（1到28之间，避免月份天数问题）
+            original_date = date_row[col_index]
+            if isinstance(original_date, datetime):
+                random_day = random.randint(1, 28)
+                modified_date = original_date.replace(day=random_day)
+            else:
+                modified_date = original_date  # 如果不是日期类型，保持原样
+
+            # 展平结果并添加主体和日期信息
+            for item in split_result:
+                output_data.append(
+                    [
+                        row[0],  # 主体
+                        modified_date,  # 日期
+                        *item,  # 展平的分组数据
+                    ]
+                )
 
 
 def save_to_excel(output_data, filename_prefix="Output"):
@@ -99,7 +126,7 @@ def save_to_excel(output_data, filename_prefix="Output"):
         workbook = Workbook()
         sheet = workbook.active
         if sheet:
-            sheet.append(["抬头", "日期", "序号", "单价", "数量", "金额"])
+            sheet.append(["主体", "日期", "序号", "单价", "数量", "金额", "剩余金额"])
             for row in output_data:
                 sheet.append(row)
             filename = (
@@ -112,7 +139,7 @@ def save_to_excel(output_data, filename_prefix="Output"):
 
 
 def main():
-    clear_console()
+    refresh_console()
     sheet = load_excel_file("育肥牛.xlsx")
     if sheet is None:
         print("Error: 无法加载工作表。")
